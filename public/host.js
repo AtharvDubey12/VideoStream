@@ -1,4 +1,7 @@
-const socket = io();
+const socket = io({
+  transports: ["websocket"]
+});
+
 const roomId = Math.random().toString(36).substring(2, 8);
 const peers = {};
 
