@@ -5,7 +5,8 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 const PORT = process.env.PORT || 3000;
-
+const cors = require('cors');
+app.use(cors());
 app.use(express.static('public'));
 
 const rooms = {};
