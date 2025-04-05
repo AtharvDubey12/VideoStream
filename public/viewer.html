@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Viewer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h2>Viewing Stream</h2>
+  <div style="display: flex; gap: 10px;">
+    <div>
+      <h4>Webcam</h4>
+      <video id="camVideo" autoplay playsinline muted></video>
+    </div>
+    <div>
+      <h4>Screen</h4>
+      <video id="screenVideo" autoplay playsinline muted></video>
+    </div>
+  </div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="viewer.js"></script>
+</body>
+</html>
