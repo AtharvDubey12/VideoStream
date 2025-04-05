@@ -1,4 +1,7 @@
-const socket = io();
+const socket = io({
+  transports: ["websocket"]
+});
+
 const urlParams = new URLSearchParams(window.location.search);
 const roomId = urlParams.get('room');
 
