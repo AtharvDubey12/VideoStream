@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+const PORT = process.env.PORT || 3000;
 
 app.use(express.static('public'));
 
@@ -40,6 +41,6 @@ io.on('connection', socket => {
   });
 });
 
-server.listen(3000,'0.0.0.0', () => {
-  console.log('Server running on http://192.168.165.7:3000');
+server.listen(PORT, () => {
+  console.log(`Server running on ${PORT}`);
 });
