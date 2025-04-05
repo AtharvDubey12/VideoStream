@@ -19,23 +19,24 @@ const screenStream = new MediaStream();
 
 let videoCount = 0;
 
-const remoteStream = new MediaStream();
-const videoElement = document.getElementById("screenVideo");
-
 peer.ontrack = (event) => {
-  console.log("Received track:", event.track.kind, "label:", event.track.label);
+  const track = event.track;
+  console.log("Received track:", track.kind, "label:", track.label);
 
-  remoteStream.addTrack(event.track);
-  videoElement.srcObject = remoteStream;
-
-  // Force play if autoplay fails
-  videoElement.onloadedmetadata = () => {
-    videoElement.play().catch((err) => {
-      console.error("Autoplay failed:", err);
-    });
-  };
+  if (track.kind === 'video') {
+    videoCount++;
+    if (videoCount === 1) {
+      camStream.addTrack(track);
+      camVideo.srcObject = camStream;
+    } else if (videoCount === 2) {
+      screenStream.addTrack(track);
+      screenVideo.srcObject = screenStream;
+    }
+  } else if (track.kind === 'audio') {
+    camStream.addTrack(track);
+    camVideo.srcObject = camStream;
+  }
 };
-
 
 let hostId;
 
