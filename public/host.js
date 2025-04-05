@@ -12,20 +12,12 @@ async function start() {
   try {
     // Get media streams with specific constraints
     const camStream = await navigator.mediaDevices.getUserMedia({ 
-      video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        frameRate: { max: 30 }
-      }, 
+      video: true, 
       audio: true 
     });
     
     const screenStream = await navigator.mediaDevices.getDisplayMedia({ 
-      video: {
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-        frameRate: { max: 15 } // Lower for screen share
-      }
+      video: true
     });
     
     // Display local video
@@ -40,25 +32,33 @@ async function start() {
     socket.on('viewer-joined', async (viewerId) => {
       console.log("Viewer joined:", viewerId);
       
-      // Create peer connection with better ICE servers
+      // Create peer connection with multiple TURN servers
       const peer = new RTCPeerConnection({
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' },
-          { 
-            urls: 'turn:openrelay.metered.ca:80',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
+          {
+            urls: 'turn:global.turn.twilio.com:3478?transport=udp',
+            username: '82fb29863e0358a6add3e595be5ee7feaa7f01261ab1afebcbfb51b58c7442fb',
+            credential: 'UMwZIBCGIH3VFyMUeJZMgKY4Xp7xhSLxAhSU7B48nxQ='
+          },
+          {
+            urls: 'turn:relay.metered.ca:80',
+            username: 'e60c9bca20a14a8e1eb3cf80',
+            credential: 'X9GGE/wSNHLEjffa'
+          },
+          {
+            urls: 'turn:relay.metered.ca:443',
+            username: 'e60c9bca20a14a8e1eb3cf80',
+            credential: 'X9GGE/wSNHLEjffa'
           }
-        ]
+        ],
+        iceCandidatePoolSize: 10
       });
       
       // Monitor connection state
       peer.onconnectionstatechange = () => {
         console.log(`Connection state with ${viewerId}:`, peer.connectionState);
-        if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') {
-          console.log("Connection lost with viewer:", viewerId);
-        }
       };
       
       // Monitor ICE state
@@ -68,6 +68,10 @@ async function start() {
           console.log("Attempting ICE restart with viewer:", viewerId);
           peer.restartIce();
         }
+      };
+      
+      peer.onicegatheringstatechange = () => {
+        console.log(`ICE gathering state with ${viewerId}:`, peer.iceGatheringState);
       };
       
       // Add all tracks to the peer connection
@@ -84,24 +88,58 @@ async function start() {
         }
       };
       
-      // Create and send offer
-      try {
-        const offer = await peer.createOffer();
-        await peer.setLocalDescription(offer);
-        console.log("Sending offer to viewer:", viewerId);
-        socket.emit('offer', { to: viewerId, sdp: offer });
-        
-        // Store peer
-        peers[viewerId] = peer;
-      } catch (error) {
-        console.error("Error creating/sending offer:", error);
-      }
+      // Wait for ICE gathering to complete before sending offer
+      let hasCreatedOffer = false;
+      
+      const checkAndSendOffer = async () => {
+        if (peer.iceGatheringState === 'complete' && !hasCreatedOffer) {
+          hasCreatedOffer = true;
+          try {
+            const offer = await peer.createOffer();
+            await peer.setLocalDescription(offer);
+            console.log("Sending offer to viewer:", viewerId);
+            socket.emit('offer', { to: viewerId, sdp: peer.localDescription });
+            
+            // Store peer
+            peers[viewerId] = peer;
+          } catch (error) {
+            console.error("Error creating/sending offer:", error);
+          }
+        }
+      };
+      
+      peer.onicegatheringstatechange = () => {
+        console.log(`ICE gathering state with ${viewerId}:`, peer.iceGatheringState);
+        checkAndSendOffer();
+      };
+      
+      // Also create offer after a short delay to ensure we don't wait forever
+      setTimeout(async () => {
+        if (!hasCreatedOffer) {
+          hasCreatedOffer = true;
+          try {
+            const offer = await peer.createOffer();
+            await peer.setLocalDescription(offer);
+            console.log("Sending offer to viewer (timeout):", viewerId);
+            socket.emit('offer', { to: viewerId, sdp: peer.localDescription });
+            
+            // Store peer
+            peers[viewerId] = peer;
+          } catch (error) {
+            console.error("Error creating/sending offer (timeout):", error);
+          }
+        }
+      }, 3000);
     });
     
     // Handle answer from viewer
     socket.on('answer', async (data) => {
       try {
         console.log("Received answer from viewer:", data.from);
+        if (!peers[data.from]) {
+          console.error("No peer for viewer:", data.from);
+          return;
+        }
         await peers[data.from].setRemoteDescription(new RTCSessionDescription(data.sdp));
         console.log("Set remote description for viewer:", data.from);
       } catch (error) {
@@ -114,7 +152,8 @@ async function start() {
       try {
         console.log("Received ICE candidate from viewer:", data.from);
         if (peers[data.from]) {
-          peers[data.from].addIceCandidate(new RTCIceCandidate(data.candidate));
+          peers[data.from].addIceCandidate(new RTCIceCandidate(data.candidate))
+            .catch(err => console.error("Error adding ICE candidate:", err));
         }
       } catch (error) {
         console.error("Error handling ICE candidate:", error);
@@ -124,13 +163,6 @@ async function start() {
     // Handle socket disconnection
     socket.on('disconnect', () => {
       console.log("Socket disconnected");
-    });
-    
-    // Handle track ending
-    [...camStream.getTracks(), ...screenStream.getTracks()].forEach(track => {
-      track.onended = () => {
-        console.log(`Track ended: ${track.kind} (${track.label})`);
-      };
     });
   } catch (error) {
     console.error("Error starting stream:", error);
