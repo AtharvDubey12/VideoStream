@@ -6,7 +6,7 @@ const roomId = Math.random().toString(36).substring(2, 8);
 const peers = {};
 
 document.getElementById('shareLink').innerText =
-  `Share this link: http://localhost:3000/viewer.html?room=${roomId}`;
+  `Share this link: https://videostream-n8t1.onrender.com/viewer.html?room=${roomId}`;
 
 async function start() {
   const camStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
