@@ -8,20 +8,44 @@ const roomId = urlParams.get('room');
 const camVideo = document.getElementById('camVideo');
 const screenVideo = document.getElementById('screenVideo');
 
-// Make sure these attributes exist in HTML
-// <video id="camVideo" autoplay playsinline muted></video>
-// <video id="screenVideo" autoplay playsinline></video>
+// Create status indicator
+const statusElement = document.createElement('div');
+statusElement.id = 'connectionStatus';
+statusElement.style.padding = '10px';
+statusElement.style.backgroundColor = '#f0f0f0';
+statusElement.style.margin = '10px 0';
+statusElement.style.borderRadius = '4px';
+statusElement.textContent = 'Connecting...';
+document.body.insertBefore(statusElement, document.body.firstChild);
 
+function updateStatus(message, isError = false) {
+  statusElement.textContent = message;
+  statusElement.style.backgroundColor = isError ? '#ffdddd' : '#f0f0f0';
+  console.log("Status update:", message);
+}
+
+// Create a peer connection with multiple TURN servers
 const peer = new RTCPeerConnection({
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { 
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
+    {
+      urls: 'turn:global.turn.twilio.com:3478?transport=udp',
+      username: '82fb29863e0358a6add3e595be5ee7feaa7f01261ab1afebcbfb51b58c7442fb',
+      credential: 'UMwZIBCGIH3VFyMUeJZMgKY4Xp7xhSLxAhSU7B48nxQ='
+    },
+    {
+      urls: 'turn:relay.metered.ca:80',
+      username: 'e60c9bca20a14a8e1eb3cf80',
+      credential: 'X9GGE/wSNHLEjffa'
+    },
+    {
+      urls: 'turn:relay.metered.ca:443',
+      username: 'e60c9bca20a14a8e1eb3cf80',
+      credential: 'X9GGE/wSNHLEjffa'
     }
-  ]
+  ],
+  iceCandidatePoolSize: 10
 });
 
 const camStream = new MediaStream();
@@ -30,29 +54,15 @@ const screenStream = new MediaStream();
 let videoCount = 0;
 let hostId;
 
-// Display connection status
-const statusElement = document.createElement('div');
-statusElement.id = 'connectionStatus';
-statusElement.style.padding = '10px';
-statusElement.style.backgroundColor = '#f0f0f0';
-statusElement.style.margin = '10px 0';
-statusElement.textContent = 'Connecting...';
-document.body.insertBefore(statusElement, document.body.firstChild);
-
-function updateStatus(message, isError = false) {
-  statusElement.textContent = message;
-  statusElement.style.backgroundColor = isError ? '#ffdddd' : '#f0f0f0';
-}
-
 // Connection state monitoring
 peer.onconnectionstatechange = () => {
   console.log("Connection state:", peer.connectionState);
   updateStatus(`Connection: ${peer.connectionState}`);
   
   if (peer.connectionState === 'connected') {
-    updateStatus('Connected to host!');
+    updateStatus('Connected to host! Waiting for streams...');
   } else if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') {
-    updateStatus('Connection lost with host. Trying to reconnect...', true);
+    updateStatus('Connection lost. Try refreshing the page.', true);
   }
 };
 
@@ -60,8 +70,13 @@ peer.onconnectionstatechange = () => {
 peer.oniceconnectionstatechange = () => {
   console.log("ICE connection state:", peer.iceConnectionState);
   if (peer.iceConnectionState === 'failed') {
-    updateStatus('Network connection failed. Please check your connection.', true);
+    updateStatus('Network connection failed. Please check your connection or try a different network.', true);
   }
+};
+
+// ICE gathering monitoring
+peer.onicegatheringstatechange = () => {
+  console.log("ICE gathering state:", peer.iceGatheringState);
 };
 
 // Handle tracks received from host
@@ -80,10 +95,10 @@ peer.ontrack = (event) => {
         // Force play attempt
         camVideo.play().catch(err => {
           console.error("Could not play camera video:", err);
-          updateStatus('Could not play camera video. Click on the page to enable.', true);
+          updateStatus('Click on the page to enable video playback', true);
         });
         
-        updateStatus('Camera stream connected!');
+        updateStatus('Camera video connected!');
       } else if (videoCount === 2) {
         // Second video track - assume it's the screen
         screenStream.addTrack(track);
@@ -92,7 +107,6 @@ peer.ontrack = (event) => {
         // Force play attempt
         screenVideo.play().catch(err => {
           console.error("Could not play screen video:", err);
-          updateStatus('Could not play screen video. Click on the page to enable.', true);
         });
         
         updateStatus('Both camera and screen streams connected!');
@@ -101,20 +115,13 @@ peer.ontrack = (event) => {
       // Add audio to the camera stream
       camStream.addTrack(track);
       camVideo.srcObject = camStream;
+      updateStatus('Audio connected!');
     }
     
     // Monitor track status
     track.onended = () => {
       console.log(`Track ended: ${track.kind} (${track.label})`);
       updateStatus(`A ${track.kind} stream has ended`, true);
-    };
-    
-    track.onmute = () => {
-      console.log(`Track muted: ${track.kind} (${track.label})`);
-    };
-    
-    track.onunmute = () => {
-      console.log(`Track unmuted: ${track.kind} (${track.label})`);
     };
   } catch (error) {
     console.error("Error handling track:", error);
@@ -129,9 +136,12 @@ peer.onicecandidate = e => {
   }
 };
 
-// Join room
+// Socket connection events
 socket.on('connect', () => {
   console.log("Socket connected with ID:", socket.id);
+  updateStatus("Connected to signaling server");
+  
+  // Join room
   socket.emit('join-room', roomId);
   console.log("Joining room:", roomId);
   updateStatus(`Joining room: ${roomId}`);
@@ -149,19 +159,31 @@ socket.on('offer', async (data) => {
     console.log("Received offer from host:", hostId);
     updateStatus('Received connection offer from host');
     
+    console.log("Setting remote description...");
     await peer.setRemoteDescription(new RTCSessionDescription(data.sdp));
-    console.log("Set remote description from offer");
+    console.log("Remote description set successfully!");
     
+    console.log("Creating answer...");
     const answer = await peer.createAnswer();
-    await peer.setLocalDescription(answer);
-    console.log("Created and set answer");
+    console.log("Answer created successfully!");
     
+    console.log("Setting local description...");
+    await peer.setLocalDescription(answer);
+    console.log("Local description set successfully!");
+    
+    console.log("Sending answer to host...");
     socket.emit('answer', { to: hostId, sdp: answer });
-    console.log("Sent answer to host");
-    updateStatus('Connecting to streams...');
+    console.log("Answer sent to host!");
+    
+    updateStatus('Connected! Waiting for media streams...');
   } catch (error) {
     console.error("Error handling offer:", error);
     updateStatus('Failed to connect: ' + error.message, true);
+    
+    // Try again with a clean peer connection
+    setTimeout(() => {
+      location.reload();
+    }, 5000);
   }
 });
 
@@ -175,23 +197,6 @@ socket.on('ice-candidate', async (data) => {
   }
 });
 
-// Periodic track status check
-setInterval(() => {
-  if (camVideo.srcObject) {
-    const tracks = camVideo.srcObject.getTracks();
-    tracks.forEach(track => {
-      console.log(`Camera Track ${track.id} (${track.kind}): readyState=${track.readyState}, enabled=${track.enabled}`);
-    });
-  }
-  
-  if (screenVideo.srcObject) {
-    const tracks = screenVideo.srcObject.getTracks();
-    tracks.forEach(track => {
-      console.log(`Screen Track ${track.id} (${track.kind}): readyState=${track.readyState}, enabled=${track.enabled}`);
-    });
-  }
-}, 10000);
-
 // Add click handler to help with autoplay issues
 document.addEventListener('click', () => {
   if (camVideo.paused && camVideo.srcObject) {
@@ -201,7 +206,45 @@ document.addEventListener('click', () => {
   if (screenVideo.paused && screenVideo.srcObject) {
     screenVideo.play().catch(e => console.error("Could not play screen video:", e));
   }
+  
+  updateStatus('Trying to enable video playback...');
 });
+
+// Add a trickle ICE timeout - if we don't get a connection after 20 seconds, reload
+setTimeout(() => {
+  if (peer.iceConnectionState !== 'connected' && peer.iceConnectionState !== 'completed') {
+    console.log("Connection timeout - reloading page");
+    updateStatus('Connection timeout. Reloading page...', true);
+    location.reload();
+  }
+}, 20000);
 
 // Update HTML for viewer
 document.title = `Viewing: ${roomId}`;
+
+// Add debugging button
+const debugButton = document.createElement('button');
+debugButton.textContent = 'Debug Connection';
+debugButton.style.marginTop = '10px';
+debugButton.style.padding = '8px 16px';
+debugButton.addEventListener('click', () => {
+  console.log("--- Debug Information ---");
+  console.log("Socket connected:", socket.connected);
+  console.log("Room ID:", roomId);
+  console.log("Connection state:", peer.connectionState);
+  console.log("ICE connection state:", peer.iceConnectionState);
+  console.log("ICE gathering state:", peer.iceGatheringState);
+  console.log("Host ID:", hostId);
+  console.log("Video tracks received:", videoCount);
+  
+  if (camVideo.srcObject) {
+    console.log("Camera tracks:", camVideo.srcObject.getTracks().length);
+  }
+  
+  if (screenVideo.srcObject) {
+    console.log("Screen tracks:", screenVideo.srcObject.getTracks().length);
+  }
+  
+  updateStatus('Debug info printed to console. Press F12 to view.');
+});
+document.body.appendChild(debugButton);
