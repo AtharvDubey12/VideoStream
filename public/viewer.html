@@ -117,13 +117,10 @@
     document.getElementById('playButton').addEventListener('click', function() {
       document.getElementById('camVideo').play().catch(e => console.log(e));
       document.getElementById('screenVideo').play().catch(e => console.log(e));
-      this.style.display = 'none';
+      this.style.display = 'block';
     });
     
-    // Show play button on mobile
-    if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-      document.getElementById('playButton').style.display = 'block';
-    }
+
   </script>
   
   <script src="/socket.io/socket.io.js"></script>
