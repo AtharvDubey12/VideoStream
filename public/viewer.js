@@ -5,7 +5,12 @@ const roomId = urlParams.get('room');
 const camVideo = document.getElementById('camVideo');
 const screenVideo = document.getElementById('screenVideo');
 
-const peer = new RTCPeerConnection();
+const peer = new RTCPeerConnection({
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' }
+  ]
+});
+
 const camStream = new MediaStream();
 const screenStream = new MediaStream();
 
